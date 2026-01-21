@@ -1,3 +1,4 @@
+const SECRET_KEY = process.env.SECRET_KEY;
 const express = require("express");
 const bodyParser = require("body-parser");
 
@@ -13,14 +14,17 @@ app.get("/", (req, res) => {
 });
 
 // endpoint รับแจ้งเตือนจากแอป
-app.post("/api/payment/notify", (req, res) => {
-  console.log("📥 Payment notification received:");
+app.post("/notify", (req, res) => {
+  const clientKey = req.headers["x-secret-key"];
+
+  if (clientKey !== SECRET_KEY) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  console.log("Payment notification received:");
   console.log(req.body);
 
-  res.json({
-    status: "ok",
-    received: true
-  });
+  res.json({ status: "ok" });
 });
 
 // start server
