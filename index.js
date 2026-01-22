@@ -39,11 +39,11 @@ app.post("/notify", async (req, res) => {
     }
 
     const { bank, amount, title, message } = req.body;
-
+    
     if (!bank || !amount) {
-      return res.status(400).json({ error: "Missing required fields" });
+       return res.status(400).json({ error: "Invalid payload" });
     }
-
+   
     const { data, error } = await supabase
       .from("payments")
       .insert([
