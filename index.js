@@ -33,32 +33,39 @@ app.get("/", (req, res) => {
 app.post("/notify", async (req, res) => {
   try {
     const clientKey = req.headers["x-secret-key"];
-
     if (clientKey !== SECRET_KEY) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const { bank, amount, title, message } = req.body;
-    
-    if (!bank || !amount) {
-       return res.status(400).json({ error: "Invalid payload" });
+    const { event_id, bank, amount, title, message } = req.body;
+
+    if (!event_id) {
+      return res.status(400).json({ error: "Missing event_id" });
     }
-   
-    const { data, error } = await supabase
+
+    const { error } = await supabase
       .from("payments")
-      .insert([
-        { bank, amount, title, message }
-      ])
-      .select();
+      .insert([{
+        event_id,
+        bank,
+        amount,
+        title,
+        message,
+      }]);
+
+    // ❗ duplicate → ถือว่าสำเร็จ
+    if (error && error.code === "23505") {
+      return res.json({ status: "duplicate_ignored" });
+    }
 
     if (error) {
-      console.error("❌ Supabase insert error:", error);
+      console.error("Supabase insert error:", error);
       return res.status(500).json({ error: "DB insert failed" });
     }
 
-    res.json({ status: "ok", data });
+    res.json({ status: "ok" });
   } catch (err) {
-    console.error("❌ Server error:", err);
+    console.error("Server error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
