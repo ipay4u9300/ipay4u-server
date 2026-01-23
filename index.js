@@ -52,7 +52,7 @@ app.post("/notify", async (req, res) => {
         title,
         message,
         device_id,
-        device_name,
+        device_name
       }]);
 
     // ❗ duplicate → ถือว่าสำเร็จ
