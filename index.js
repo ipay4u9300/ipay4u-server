@@ -54,7 +54,9 @@ app.post("/notify", async (req, res) => {
         device_id,
         device_name
       }]);
-
+    
+     .select()
+     .single();
     // ❗ duplicate → ถือว่าสำเร็จ
     if (error && error.code === "23505") {
       return res.json({ status: "duplicate_ignored" });
@@ -65,7 +67,11 @@ app.post("/notify", async (req, res) => {
       return res.status(500).json({ error: "DB insert failed" });
     }
 
-    res.json({ status: "ok" });
+    res.json({
+      status: "ok",
+      payment: data
+    });
+    
   } catch (err) {
     console.error("Server error:", err);
     res.status(500).json({ error: "Internal server error" });
