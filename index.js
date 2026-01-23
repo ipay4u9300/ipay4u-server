@@ -51,6 +51,8 @@ app.post("/notify", async (req, res) => {
         amount,
         title,
         message,
+        device_id,
+        device_name,
       }]);
 
     // ❗ duplicate → ถือว่าสำเร็จ
