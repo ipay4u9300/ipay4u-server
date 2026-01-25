@@ -95,8 +95,9 @@ app.post("/notify", async (req, res) => {
       .select("*")
       .eq("device_token", deviceToken)
       .single();
-    console.log("device from db =", device);
-    console.log("device error =", error);
+   console.log("x-device-token =", deviceToken);
+console.log("device from db =", device);
+console.log("deviceError =", deviceError);
 
     if (deviceError || !device) {
       return res.status(403).json({ error: "invalid device" });
