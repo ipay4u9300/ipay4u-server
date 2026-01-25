@@ -5,25 +5,20 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ===== ENV =====
-const SECRET_KEY = process.env.SECRET_KEY; // ตัวนี้อาจเก็บไว้ใช้สำหรับระบบอื่น หรือใช้คู่กับ Fingerprint
+// ===== 1. การตั้งค่า SUPABASE =====
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// ===== MIDDLEWARE: เก็บ Raw Body สำหรับ Verify Signature =====
+// ===== 2. MIDDLEWARE =====
 app.use(express.json({
   verify: (req, res, buf) => {
-    req.rawBody = buf.toString();
+    req.rawBody = buf.toString(); // เก็บข้อมูลดิบไว้สำหรับตรวจสอบ Signature
   }
 }));
 
-app.get("/", (_, res) => res.send("iPay4U API: Android Optimized Version"));
-
-// =====================================================
-// 🔐 REGISTER DEVICE (Using Fingerprint)
-// =====================================================
+// ===== 3. REGISTER DEVICE (ใช้ Fingerprint) =====
 app.post("/register", async (req, res) => {
   try {
     const fingerprint = req.headers["x-device-fingerprint"];
@@ -53,11 +48,11 @@ app.post("/register", async (req, res) => {
 });
 
 // =====================================================
-// 🔔 NOTIFY (Using Bearer Token & client_txn_id)
+// 🔔 NOTIFY (ใช้ Bearer Token และบันทึก client_txn_id)
 // =====================================================
 app.post("/notify", async (req, res) => {
   try {
-    // ดึง Token จาก Bearer Token
+    // 1. ดึง Token จาก Authorization Header (Bearer Token)
     const authHeader = req.headers["authorization"];
     const deviceToken = authHeader ? authHeader.split(" ")[1] : null;
     
@@ -67,6 +62,7 @@ app.post("/notify", async (req, res) => {
 
     if (!deviceToken || !signature) return res.status(401).json({ error: "Unauthorized" });
 
+    // 2. ตรวจสอบ Device
     const { data: device, error: deviceError } = await supabase
       .from("devices")
       .select("*")
@@ -75,27 +71,29 @@ app.post("/notify", async (req, res) => {
 
     if (deviceError || !device) return res.status(403).json({ error: "Invalid device" });
 
-    // Verify Signature: rawBody + timestamp + nonce
+    // 3. ตรวจสอบความถูกต้องของข้อมูล (Signature)
     const expectedSignature = crypto
       .createHmac("sha256", deviceToken)
       .update(req.rawBody + timestamp + nonce)
       .digest("hex");
 
     if (expectedSignature !== signature) {
-      console.log("Signature Mismatch!");
+      console.log("❌ Signature Mismatch!");
       return res.status(401).json({ error: "Invalid signature" });
     }
 
+    // 4. รับข้อมูลที่ Android ส่งมา (รวมถึง client_txn_id)
     const { client_txn_id, bank, amount, title, message } = req.body;
 
     if (!client_txn_id || amount === undefined) {
       return res.status(400).json({ error: "Missing transaction data" });
     }
 
+    // 5. บันทึกลง Supabase
     const { data: payment, error: insertError } = await supabase
       .from("payments")
       .insert([{
-        client_txn_id: client_txn_id,
+        client_txn_id: client_txn_id, // ผูก ID ธุรกรรม
         bank,
         amount: parseFloat(amount),
         title,
@@ -104,13 +102,14 @@ app.post("/notify", async (req, res) => {
       }])
       .select().single();
 
+    // ดักจับกรณีส่งข้อมูลซ้ำ (Duplicate client_txn_id)
     if (insertError && insertError.code === "23505") {
       return res.json({ status: "duplicate_ignored", client_txn_id });
     }
 
     if (insertError) throw insertError;
 
-    console.log(`💰 Success: ${amount} THB (Txn: ${client_txn_id})`);
+    console.log(`💰 ได้รับเงิน: ${amount} THB (Txn: ${client_txn_id})`);
     res.json({ status: "ok", client_txn_id: payment.client_txn_id });
 
   } catch (err) {
@@ -119,4 +118,4 @@ app.post("/notify", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 API Running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
