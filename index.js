@@ -1,32 +1,33 @@
 const express = require("express");
-const bodyParser = require("body-parser");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ===== ENV =====
+// ===== 1. ENV CONFIGURATION =====
 const SECRET_KEY = process.env.SECRET_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SECRET_KEY) {
-  console.error("❌ Missing ENV");
+  console.error("❌ Missing environment variables. Please check your .env file.");
   process.exit(1);
 }
 
-// ===== Supabase =====
-const supabase = createClient(
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY
-);
+// ===== 2. SUPABASE CLIENT =====
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-app.use(bodyParser.json());
+// ===== 3. MIDDLEWARE (สำคัญ: เก็บ Raw Body เพื่อใช้ Verify Signature) =====
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
 
-// ===== Health =====
-app.get("/", (_, res) => res.send("ipay4u api running"));
-app.get("/health", (_, res) => res.json({ status: "ok" }));
+// ===== 4. HEALTH CHECK =====
+app.get("/", (_, res) => res.send("ipay4u API is Online"));
+app.get("/health", (_, res) => res.json({ status: "ok", timestamp: new Date() }));
 
 // =====================================================
 // 🔐 REGISTER DEVICE
@@ -45,35 +46,39 @@ app.post("/register", async (req, res) => {
 
     const deviceToken = crypto.randomBytes(32).toString("hex");
 
-   const { data, error } = await supabase
-  .from("devices")
-  .upsert({
-    device_id,
-    device_name,
-    device_token: deviceToken,
-    status: "active"
-  }, { onConflict: 'device_id' }) // ถ้า id ซ้ำให้ update หรือจัดการตามที่ออกแบบไว้
-  .select()
-  .single();
+    // ใช้ UPSERT เพื่อป้องกัน Error เมื่อ Device เดิมขอ Token ใหม่
+    const { data, error } = await supabase
+      .from("devices")
+      .upsert({
+        device_id,
+        device_name,
+        device_token: deviceToken,
+        status: "active",
+        updated_at: new Date()
+      }, { onConflict: 'device_id' })
+      .select()
+      .single();
 
     if (error) {
-      console.error("register error:", error);
-      return res.status(500).json({ error: "register failed" });
+      console.error("Registration Error:", error.message);
+      return res.status(500).json({ error: "database error during registration" });
     }
 
+    console.log(`✅ Device Registered: ${device_name} (${device_id})`);
     res.json({ device_token: data.device_token });
 
   } catch (err) {
-    console.error("register crash:", err);
-    res.status(500).json({ error: "server error" });
+    console.error("Register Crash:", err);
+    res.status(500).json({ error: "internal server error" });
   }
 });
 
 // =====================================================
-// 🔔 NOTIFY (รับแจ้งเงินเข้า)
+// 🔔 NOTIFY (รับแจ้งยอดเงินเข้า)
 // =====================================================
 app.post("/notify", async (req, res) => {
   try {
+    // 1. Basic Auth Check
     const clientKey = req.headers["x-secret-key"];
     if (clientKey !== SECRET_KEY) {
       return res.status(403).json({ error: "forbidden" });
@@ -88,47 +93,38 @@ app.post("/notify", async (req, res) => {
       return res.status(401).json({ error: "missing security headers" });
     }
 
-    // 🔍 หา device
-    console.log("x-device-token =", deviceToken);
+    // 2. ค้นหา Device ใน Database
     const { data: device, error: deviceError } = await supabase
       .from("devices")
       .select("*")
       .eq("device_token", deviceToken)
       .single();
-   console.log("x-device-token =", deviceToken);
-console.log("device from db =", device);
-console.log("deviceError =", deviceError);
 
     if (deviceError || !device) {
-      return res.status(403).json({ error: "invalid device" });
+      console.error("Device Auth Failed:", deviceToken);
+      return res.status(403).json({ error: "invalid device token" });
     }
 
     if (device.status !== "active") {
-      return res.status(403).json({ error: "device disabled" });
+      return res.status(403).json({ error: "device is disabled" });
     }
 
-    // 🔏 verify signature
-    const rawBody = JSON.stringify(req.body || {});
+    // 3. Verify HMAC Signature (ใช้ rawBody เพื่อความแม่นยำ 100%)
     const expectedSignature = crypto
       .createHmac("sha256", deviceToken)
-      .update(rawBody + timestamp + nonce)
+      .update(req.rawBody + timestamp + nonce)
       .digest("hex");
 
     if (expectedSignature !== signature) {
+      console.warn("❌ Invalid Signature attempt from device:", device.device_id);
       return res.status(401).json({ error: "invalid signature" });
     }
 
-    // ===== data =====
-    const {
-      client_txn_id,
-      bank,
-      amount,
-      title,
-      message
-    } = req.body;
+    // 4. บันทึกข้อมูลการชำระเงิน
+    const { client_txn_id, bank, amount, title, message } = req.body;
 
-    if (!client_txn_id || !amount) {
-      return res.status(400).json({ error: "missing payment data" });
+    if (!client_txn_id || amount === undefined) {
+      return res.status(400).json({ error: "incomplete payment data" });
     }
 
     const { data: payment, error: insertError } = await supabase
@@ -136,33 +132,41 @@ console.log("deviceError =", deviceError);
       .insert([{
         client_txn_id,
         bank,
-        amount,
+        amount: parseFloat(amount),
         title,
         message,
-        device_id: device.device_id
+        device_id: device.device_id,
+        created_at: new Date()
       }])
       .select()
       .single();
 
-    // duplicate → ถือว่าสำเร็จ
+    // กรณีข้อมูลซ้ำ (Unique Constraint)
     if (insertError && insertError.code === "23505") {
-      return res.json({ status: "duplicate_ignored" });
+      return res.json({ status: "duplicate_ignored", client_txn_id });
     }
 
     if (insertError) {
-      console.error("payment insert error:", insertError);
-      return res.status(500).json({ error: "db insert failed" });
+      console.error("DB Insert Error:", insertError.message);
+      return res.status(500).json({ error: "failed to record payment" });
     }
 
-    res.json({ status: "ok", payment });
+    console.log(`💰 New Payment: ${amount} THB via ${bank} (Txn: ${client_txn_id})`);
+    res.json({ status: "ok", payment_id: payment.id });
 
   } catch (err) {
-    console.error("notify crash:", err);
-    res.status(500).json({ error: "server error" });
+    console.error("Notify Crash:", err);
+    res.status(500).json({ error: "internal server error" });
   }
 });
 
-// ===== START =====
+// ===== 5. START SERVER =====
 app.listen(PORT, () => {
-  console.log(`🚀 ipay4u api running on ${PORT}`);
+  console.log(`
+  🚀 iPay4U Backend Running
+  --------------------------
+  Port:      ${PORT}
+  Supabase:  ${SUPABASE_URL}
+  --------------------------
+  `);
 });
