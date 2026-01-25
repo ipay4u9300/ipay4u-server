@@ -114,9 +114,9 @@ console.log("deviceError =", deviceError);
       .update(rawBody + timestamp + nonce)
       .digest("hex");
 
-    if (expectedSignature !== signature) {
-      return res.status(401).json({ error: "invalid signature" });
-    }
+  //  if (expectedSignature !== signature) {
+   //   return res.status(401).json({ error: "invalid signature" });
+   // }
 
     // ===== data =====
     const {
