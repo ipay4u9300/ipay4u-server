@@ -87,12 +87,12 @@ const { data, error } = await supabase
   });
 }
 
-    if (error) {
-  console.error("Supabase insert error:", error);
+   if (error) {
+  console.error("Supabase error:", error);
   return res.status(500).json({
-    error: error.message,
-    code: error.code,
-    details: error.details
+    error: "DB insert failed",
+    detail: error.message,
+    code: error.code
   });
 }
 
