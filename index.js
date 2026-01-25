@@ -45,21 +45,21 @@ app.post("/notify", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const {
+   const {
   client_txn_id,
-  bank,
-  amount,
-  title,
-  message,
-  device_id,
-  device_name
+  bank = null,
+  amount = null,
+  title = null,
+  message = null,
+  device_id = null,
+  device_name = null
 } = req.body;
 
 if (!client_txn_id) {
   return res.status(400).json({ error: "Missing client_txn_id" });
 }
 
-   const { data, error } = await supabase
+  const { data, error } = await supabase
   .from("payments")
   .insert([{
     client_txn_id,
@@ -72,6 +72,7 @@ if (!client_txn_id) {
   }])
   .select()
   .single();
+    
     // ❗ duplicate → ถือว่าสำเร็จ
    if (error && error.code === "23505") {
   return res.json({
