@@ -46,7 +46,6 @@ app.post("/notify", async (req, res) => {
     }
 
     const {
-  event_id,
   client_txn_id,
   bank,
   amount,
@@ -56,14 +55,13 @@ app.post("/notify", async (req, res) => {
   device_name
 } = req.body;
 
-if (!event_id || !client_txn_id) {
-  return res.status(400).json({ error: "Missing required fields" });
+if (!client_txn_id) {
+  return res.status(400).json({ error: "Missing client_txn_id" });
 }
 
    const { data, error } = await supabase
   .from("payments")
   .insert([{
-    event_id,
     client_txn_id,
     bank,
     amount,
@@ -75,9 +73,12 @@ if (!event_id || !client_txn_id) {
   .select()
   .single();
     // ❗ duplicate → ถือว่าสำเร็จ
-    if (error && error.code === "23505") {
-      return res.json({ status: "duplicate_ignored" });
-    }
+   if (error && error.code === "23505") {
+  return res.json({
+    status: "duplicate_ignored",
+    client_txn_id
+  });
+}
 
     if (error) {
       console.error("Supabase insert error:", error);
