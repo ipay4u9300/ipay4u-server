@@ -29,6 +29,14 @@ app.get("/", (req, res) => {
   res.send("ipay4u server is running");
 });
 
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "ipay4u-api",
+    time: new Date().toISOString()
+  });
+});
+
 // notify endpoint
 app.post("/notify", async (req, res) => {
   try {
