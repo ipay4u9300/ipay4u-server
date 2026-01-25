@@ -46,7 +46,6 @@ app.post("/notify", async (req, res) => {
     }
 
    const {
- event_id,
   client_txn_id,
   bank = null,
   amount = null,
