@@ -89,9 +89,9 @@ app.post("/notify", async (req, res) => {
       .update(req.rawBody + timestamp + nonce)
       .digest("hex");
 
-//    if (expectedSignature !== signature) {
-//      return res.status(401).json({ error: "invalid signature" });
-//    }
+   if (expectedSignature !== signature) {
+     return res.status(401).json({ error: "invalid signature" });
+    }
 
     // 3. รับค่าและ Mapping (ใช้ event_id แทนการสร้างใหม่)
     const {
