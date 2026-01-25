@@ -51,7 +51,7 @@ app.post("/notify", async (req, res) => {
       return res.status(400).json({ error: "Missing event_id" });
     }
 
-    const { error } = await supabase
+   const { data, error } = await supabase
       .from("payments")
       .insert([{
         event_id,
