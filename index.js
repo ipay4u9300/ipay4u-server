@@ -45,60 +45,35 @@ app.post("/notify", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-   const {
-  client_txn_id,
-  bank = null,
-  amount = null,
-  title = null,
-  message = null,
-  device_id = null,
-  device_name = null
-} = req.body;
+    const { event_id, bank, amount, title, message,device_id,device_name } = req.body;
 
-if (!event_id) { return res.status(400).json({ error: "Missing event_id" }); }
-if (!client_txn_id) {
-  return res.status(400).json({ error: "Missing client_txn_id" });
-}
+    if (!event_id) {
+      return res.status(400).json({ error: "Missing event_id" });
+    }
 
-
-if (!event_id || !client_txn_id) {
-  return res.status(400).json({
-    error: "Missing event_id or client_txn_id"
-  });
-}
-
-   
-const { data, error } = await supabase
-  .from("payments")
-  .insert([{
-    event_id,
-    client_txn_id,
-    bank,
-    amount,
-    title,
-    message,
-    device_id,
-    device_name
-  }])
-  .select()
-  .single();
+   const { data, error } = await supabase
+      .from("payments")
+      .insert([{
+        event_id,
+        bank,
+        amount,
+        title,
+        message,
+        device_id,
+        device_name
+      }])
     
+     .select()
+     .single();
     // ❗ duplicate → ถือว่าสำเร็จ
-   if (error && error.code === "23505") {
-  return res.json({
-    status: "duplicate_ignored",
-    client_txn_id
-  });
-}
+    if (error && error.code === "23505") {
+      return res.json({ status: "duplicate_ignored" });
+    }
 
-   if (error) {
-  console.error("Supabase error:", error);
-  return res.status(500).json({
-    error: "DB insert failed",
-    detail: error.message,
-    code: error.code
-  });
-}
+    if (error) {
+      console.error("Supabase insert error:", error);
+      return res.status(500).json({ error: "DB insert failed" });
+    }
 
     res.json({
       status: "ok",
