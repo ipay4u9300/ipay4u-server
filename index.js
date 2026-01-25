@@ -64,18 +64,17 @@ if (!event_id || !client_txn_id) {
 
 const finalEventId = event_id || crypto.randomUUID();
     
- const { data, error } = await supabase
+const { data, error } = await supabase
   .from("payments")
   .insert([{
-   event_id: finalEventId,           // ← ต้องมี ถ้า schema บังคับ
+    event_id: finalEventId,
     client_txn_id,
     bank,
     amount,
     title,
     message,
     device_id,
-    device_name,
-    status: "paid"     // แนะนำใส่ default ชัด ๆ
+    device_name
   }])
   .select()
   .single();
