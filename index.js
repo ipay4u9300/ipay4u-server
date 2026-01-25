@@ -46,6 +46,7 @@ app.post("/notify", async (req, res) => {
     }
 
    const {
+  event_id,
   client_txn_id,
   bank = null,
   amount = null,
@@ -59,16 +60,18 @@ if (!client_txn_id) {
   return res.status(400).json({ error: "Missing client_txn_id" });
 }
 
-  const { data, error } = await supabase
+ const { data, error } = await supabase
   .from("payments")
   .insert([{
+    event_id,          // ← ต้องมี ถ้า schema บังคับ
     client_txn_id,
     bank,
     amount,
     title,
     message,
     device_id,
-    device_name
+    device_name,
+    status: "paid"     // แนะนำใส่ default ชัด ๆ
   }])
   .select()
   .single();
