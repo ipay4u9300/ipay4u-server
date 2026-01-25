@@ -89,11 +89,14 @@ app.post("/notify", async (req, res) => {
     }
 
     // 🔍 หา device
+    console.log("x-device-token =", deviceToken);
     const { data: device, error: deviceError } = await supabase
       .from("devices")
       .select("*")
       .eq("device_token", deviceToken)
       .single();
+    console.log("device from db =", device);
+    console.log("device error =", error);
 
     if (deviceError || !device) {
       return res.status(403).json({ error: "invalid device" });
