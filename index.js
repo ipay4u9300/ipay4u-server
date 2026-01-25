@@ -45,26 +45,35 @@ app.post("/notify", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const { event_id, bank, amount, title, message,device_id,device_name } = req.body;
+    const {
+  event_id,
+  client_txn_id,
+  bank,
+  amount,
+  title,
+  message,
+  device_id,
+  device_name
+} = req.body;
 
-    if (!event_id) {
-      return res.status(400).json({ error: "Missing event_id" });
-    }
+if (!event_id || !client_txn_id) {
+  return res.status(400).json({ error: "Missing required fields" });
+}
 
    const { data, error } = await supabase
-      .from("payments")
-      .insert([{
-        event_id,
-        bank,
-        amount,
-        title,
-        message,
-        device_id,
-        device_name
-      }])
-    
-     .select()
-     .single();
+  .from("payments")
+  .insert([{
+    event_id,
+    client_txn_id,
+    bank,
+    amount,
+    title,
+    message,
+    device_id,
+    device_name
+  }])
+  .select()
+  .single();
     // ❗ duplicate → ถือว่าสำเร็จ
     if (error && error.code === "23505") {
       return res.json({ status: "duplicate_ignored" });
