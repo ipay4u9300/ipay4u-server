@@ -56,14 +56,18 @@ app.post("/notify", async (req, res) => {
   device_name = null
 } = req.body;
 
-if (!client_txn_id) {
-  return res.status(400).json({ error: "Missing client_txn_id" });
+if (!event_id || !client_txn_id) {
+  return res.status(400).json({
+    error: "Missing event_id or client_txn_id"
+  });
 }
 
+const finalEventId = event_id || crypto.randomUUID();
+    
  const { data, error } = await supabase
   .from("payments")
   .insert([{
-    event_id,          // ← ต้องมี ถ้า schema บังคับ
+   event_id: finalEventId,           // ← ต้องมี ถ้า schema บังคับ
     client_txn_id,
     bank,
     amount,
@@ -85,9 +89,13 @@ if (!client_txn_id) {
 }
 
     if (error) {
-      console.error("Supabase insert error:", error);
-      return res.status(500).json({ error: "DB insert failed" });
-    }
+  console.error("Supabase insert error:", error);
+  return res.status(500).json({
+    error: error.message,
+    code: error.code,
+    details: error.details
+  });
+}
 
     res.json({
       status: "ok",
