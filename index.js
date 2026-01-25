@@ -61,7 +61,7 @@ app.post("/notify", async (req, res) => {
         message,
         device_id,
         device_name
-      }]);
+      }])
     
      .select()
      .single();
