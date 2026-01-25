@@ -45,16 +45,16 @@ app.post("/register", async (req, res) => {
 
     const deviceToken = crypto.randomBytes(32).toString("hex");
 
-    const { data, error } = await supabase
-      .from("devices")
-      .insert([{
-        device_id,
-        device_name,
-        device_token: deviceToken,
-        status: "active"
-      }])
-      .select()
-      .single();
+   const { data, error } = await supabase
+  .from("devices")
+  .upsert({
+    device_id,
+    device_name,
+    device_token: deviceToken,
+    status: "active"
+  }, { onConflict: 'device_id' }) // ถ้า id ซ้ำให้ update หรือจัดการตามที่ออกแบบไว้
+  .select()
+  .single();
 
     if (error) {
       console.error("register error:", error);
@@ -114,9 +114,9 @@ console.log("deviceError =", deviceError);
       .update(rawBody + timestamp + nonce)
       .digest("hex");
 
-  //  if (expectedSignature !== signature) {
-   //   return res.status(401).json({ error: "invalid signature" });
-   // }
+    if (expectedSignature !== signature) {
+      return res.status(401).json({ error: "invalid signature" });
+    }
 
     // ===== data =====
     const {
