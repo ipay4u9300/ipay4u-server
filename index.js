@@ -46,7 +46,6 @@ app.post("/notify", async (req, res) => {
     }
 
    const {
-  event_id,
   client_txn_id,
   bank = null,
   amount = null,
@@ -56,13 +55,18 @@ app.post("/notify", async (req, res) => {
   device_name = null
 } = req.body;
 
+if (!client_txn_id) {
+  return res.status(400).json({ error: "Missing client_txn_id" });
+}
+
+
 if (!event_id || !client_txn_id) {
   return res.status(400).json({
     error: "Missing event_id or client_txn_id"
   });
 }
 
-const finalEventId = event_id || crypto.randomUUID();
+const finalEventId = `evt_${Date.now()}_${client_txn_id}`;
     
 const { data, error } = await supabase
   .from("payments")
