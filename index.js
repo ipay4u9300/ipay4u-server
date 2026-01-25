@@ -42,15 +42,16 @@ app.post("/register", async (req, res) => {
     const deviceToken = crypto.randomBytes(32).toString("hex");
 
     const { data, error } = await supabase
-      .from("devices")
-      .upsert({
-        device_id,
-        device_name,
-        device_token: deviceToken,
-        status: "active",
-        updated_at: new Date()
-      }, { onConflict: 'device_id' })
-      .select().single();
+  .from("devices")
+  .upsert({
+    device_id,
+    device_name,
+    device_token: deviceToken,
+    status: "active"
+    // ลบบรรทัด updated_at ออก
+  }, { onConflict: 'device_id' })
+  .select()
+  .single();
 
     if (error) throw error;
     res.json({ device_token: data.device_token });
