@@ -18,7 +18,12 @@ app.use(express.json({
   }
 }));
 
-// ===== 3. REGISTER DEVICE (ใช้ Fingerprint) =====
+// ===== 3. HEALTH CHECK =====
+app.get("/", (_, res) => res.send("iPay4U Central Control API is running"));
+
+// =====================================================
+// 🔐 REGISTER DEVICE (ใช้ Fingerprint)
+// =====================================================
 app.post("/register", async (req, res) => {
   try {
     const fingerprint = req.headers["x-device-fingerprint"];
@@ -35,7 +40,7 @@ app.post("/register", async (req, res) => {
         device_id,
         device_name,
         device_token: deviceToken,
-        status: "active"
+        status: "active" // ค่าเริ่มต้นเป็น active
       }, { onConflict: 'device_id' })
       .select().single();
 
@@ -48,7 +53,7 @@ app.post("/register", async (req, res) => {
 });
 
 // =====================================================
-// 🔔 NOTIFY (ใช้ Bearer Token และบันทึก client_txn_id)
+// 🔔 NOTIFY (ตรวจสอบสิทธิ์เครื่องก่อนบันทึก)
 // =====================================================
 app.post("/notify", async (req, res) => {
   try {
@@ -62,14 +67,22 @@ app.post("/notify", async (req, res) => {
 
     if (!deviceToken || !signature) return res.status(401).json({ error: "Unauthorized" });
 
-    // 2. ตรวจสอบ Device
+    // 2. ตรวจสอบ Device และ "สถานะการอนุญาต"
     const { data: device, error: deviceError } = await supabase
       .from("devices")
       .select("*")
       .eq("device_token", deviceToken)
       .single();
 
-    if (deviceError || !device) return res.status(403).json({ error: "Invalid device" });
+    if (deviceError || !device) {
+      return res.status(403).json({ error: "Invalid device" });
+    }
+
+    // 🚀 จุดควบคุมหลัก: เช็คว่าเครื่องนี้ถูก "สั่งหยุด" หรือไม่
+    if (device.status !== "active") {
+      console.log(`🚫 Blocked: Transaction from disabled device (${device.device_name})`);
+      return res.status(403).json({ error: "This device has been disabled by administrator" });
+    }
 
     // 3. ตรวจสอบความถูกต้องของข้อมูล (Signature)
     const expectedSignature = crypto
@@ -82,7 +95,7 @@ app.post("/notify", async (req, res) => {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // 4. รับข้อมูลที่ Android ส่งมา (รวมถึง client_txn_id)
+    // 4. รับข้อมูลที่ Android ส่งมา
     const { client_txn_id, bank, amount, title, message } = req.body;
 
     if (!client_txn_id || amount === undefined) {
@@ -93,7 +106,7 @@ app.post("/notify", async (req, res) => {
     const { data: payment, error: insertError } = await supabase
       .from("payments")
       .insert([{
-        client_txn_id: client_txn_id, // ผูก ID ธุรกรรม
+        client_txn_id: client_txn_id,
         bank,
         amount: parseFloat(amount),
         title,
@@ -109,7 +122,7 @@ app.post("/notify", async (req, res) => {
 
     if (insertError) throw insertError;
 
-    console.log(`💰 ได้รับเงิน: ${amount} THB (Txn: ${client_txn_id})`);
+    console.log(`💰 ได้รับเงิน: ${amount} THB (Txn: ${client_txn_id}) จากเครื่อง: ${device.device_name}`);
     res.json({ status: "ok", client_txn_id: payment.client_txn_id });
 
   } catch (err) {
@@ -118,4 +131,4 @@ app.post("/notify", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Centralized API running on port ${PORT}`));
