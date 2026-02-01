@@ -2,7 +2,8 @@ const express = require("express");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
 
-const app = express();const PORT = process.env.PORT || 10000;
+const app = express();
+const PORT = process.env.PORT || 10000;
 
 // ===== 1. การตั้งค่าสิทธิ์และการเชื่อมต่อ (ENV) =====
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -16,7 +17,6 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // ===== 2. MIDDLEWARE =====
-// สำคัญมาก: เก็บ rawBody ไว้ตรวจสอบ Signature เพื่อป้องกันปัญหา JSON ถูกจัดรูปแบบใหม่
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf.toString();
@@ -37,7 +37,6 @@ app.post("/register", async (req, res) => {
     const { device_id, device_name, device_fingerprint } = req.body;
     if (!device_id || !device_name) return res.status(400).json({ error: "Missing required data" });
 
-    // สร้าง Secure Token แบบสุ่ม 64 ตัวอักษร
     const deviceToken = crypto.randomBytes(32).toString("hex");
 
     const { data, error } = await supabase
@@ -46,7 +45,7 @@ app.post("/register", async (req, res) => {
         device_id,
         device_name,
         device_token: deviceToken,
-        status: "active", // เริ่มต้นให้ใช้งานได้ทันที
+        status: "active",
         last_fingerprint: fingerprint || device_fingerprint
       }, { onConflict: 'device_id' })
       .select().single();
@@ -62,7 +61,7 @@ app.post("/register", async (req, res) => {
 });
 
 // =====================================================
-// 🔍 2. DEVICE STATUS (เช็คสถานะจากแอปทุก 30 นาที)
+// 🔍 2. DEVICE STATUS (เช็คสถานะจากแอป)
 // =====================================================
 app.get("/device-status", async (req, res) => {
   try {
@@ -79,7 +78,6 @@ app.get("/device-status", async (req, res) => {
 
     if (error || !device) return res.status(404).json({ error: "Device not found" });
 
-    // ส่งสถานะกลับไป (เช่น active, locked, disabled)
     res.json({ status: device.status });
   } catch (err) {
     console.error("Status Sync Error:", err.message);
@@ -88,7 +86,46 @@ app.get("/device-status", async (req, res) => {
 });
 
 // =====================================================
-// 🔔 3. NOTIFY (รับข้อมูลเงินเข้าพร้อมตรวจสอบความปลอดภัย)
+// ⚙️ 3. APP CONFIG (ดึง Keywords และ Bank Packages จาก Supabase)
+// =====================================================
+app.get("/config", async (req, res) => {
+  try {
+    const authHeader = req.headers["authorization"];
+    const deviceToken = authHeader ? authHeader.split(" ")[1] : null;
+
+    if (!deviceToken) return res.status(401).json({ error: "Unauthorized" });
+
+    // 1. ตรวจสอบก่อนว่าเครื่องนี้มีสิทธิ์ดึงข้อมูลไหม (ต้องเป็นเครื่องที่ลงทะเบียนแล้ว)
+    const { data: device, error: devError } = await supabase
+      .from("devices")
+      .select("status")
+      .eq("device_token", deviceToken)
+      .single();
+
+    if (devError || !device) return res.status(404).json({ error: "Device not found" });
+
+    // 2. ดึงข้อมูลจากตาราง app_configs ที่เราสร้างไว้
+    const { data: config, error: configError } = await supabase
+      .from("app_configs")
+      .select("config_value")
+      .eq("config_key", "bank_configs")
+      .single();
+
+    if (configError || !config) {
+      console.error("❌ Config not found in DB");
+      return res.status(404).json({ error: "Config not found" });
+    }
+
+    // ส่งข้อมูล JSON (keywords และ packages) กลับไปที่แอป
+    res.json(config.config_value);
+  } catch (err) {
+    console.error("Config Fetch Error:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// =====================================================
+// 🔔 4. NOTIFY (รับข้อมูลเงินเข้า)
 // =====================================================
 app.post("/notify", async (req, res) => {
   try {
@@ -100,7 +137,6 @@ app.post("/notify", async (req, res) => {
 
     if (!deviceToken || !signature) return res.status(401).json({ error: "Unauthorized" });
 
-    // 1. ตรวจสอบว่า Device มีอยู่จริงและสถานะปกติไหม
     const { data: device, error: deviceError } = await supabase
       .from("devices")
       .select("*")
@@ -110,30 +146,21 @@ app.post("/notify", async (req, res) => {
     if (deviceError || !device) return res.status(403).json({ error: "Device invalid" });
     if (device.status !== "active") return res.status(403).json({ error: "Device access suspended" });
 
-    // 2. ตรวจสอบ Signature (Integrity Check)
-    // สูตร: HMAC-SHA256(deviceToken, RawBody + Timestamp + Nonce)
     const expectedSignature = crypto
       .createHmac("sha256", deviceToken)
       .update(req.rawBody + timestamp + nonce)
       .digest("hex");
 
     if (expectedSignature !== signature) {
-      console.warn(`⚠️ Signature Mismatch for device: ${device.device_name}`);
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // 3. รับข้อมูลธุรกรรมจาก Android
     const { client_txn_id, bank, amount, title, message } = req.body;
 
-    if (!client_txn_id || amount === undefined) {
-      return res.status(400).json({ error: "Missing transaction data" });
-    }
-
-    // 4. บันทึกลง Supabase ตาราง payments
     const { data: payment, error: insertError } = await supabase
       .from("payments")
       .insert([{
-        client_txn_id: client_txn_id,
+        client_txn_id,
         bank,
         amount: parseFloat(amount),
         title,
@@ -143,9 +170,7 @@ app.post("/notify", async (req, res) => {
       }])
       .select().single();
 
-    // ดักจับกรณีข้อมูลซ้ำ (Unique Constraint ในฐานข้อมูล)
     if (insertError && insertError.code === "23505") {
-      console.log(`♻️ Duplicate ignored: ${client_txn_id}`);
       return res.json({ status: "duplicate_ignored", txn_id: client_txn_id });
     }
 
@@ -155,17 +180,15 @@ app.post("/notify", async (req, res) => {
     res.json({ status: "ok", txn_id: payment.client_txn_id });
 
   } catch (err) {
-    console.error("Notify Detailed Error:", err);
-    res.status(500).json({ error: "Server error", detail: err.message });
+    console.error("Notify Error:", err.message);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// เริ่มทำงาน API
 app.listen(PORT, () => {
   console.log(`
   🚀 iPay4U Backend is running on port ${PORT}
-  🛠  Security: HMAC-SHA256 Ready
-  🔗 Supabase: Connected
-  ⏱  Sync: 30-min Status Check Enabled
+  🛠  Remote Config: /config is ready
+  ⏱  Sync: 10-min status check support
   `);
 });
